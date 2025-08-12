@@ -114,12 +114,13 @@ impl eframe::App for App {
 fn run_encrypt(input: Option<PathBuf>, output: Option<PathBuf>, password: &str) -> Result<()> {
     let in_path = input.context("No input file selected")?;
     let out_path = output.context("No output file selected")?;
-    let plaintext = fs::read(&in_path).with_context(|| format!("Reading {}", in_path.display()))?;
+    let mut plaintext = fs::read(&in_path)
+        .with_context(|| format!("Reading {}", in_path.display()))?;
 
     // Derive key
     let mut salt = [0u8; 16];
     fill(&mut salt).map_err(|e| anyhow!("OS RNG failed for salt: {e}"))?;
-    let key = derive_key(password, &salt)?;
+    let mut key = derive_key(password, &salt)?;
 
     // AEAD
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
@@ -142,6 +143,10 @@ fn run_encrypt(input: Option<PathBuf>, output: Option<PathBuf>, password: &str) 
         .with_context(|| format!("Creating {}", out_path.display()))?;
     f.write_all(&out)?;
     f.flush()?;
+
+    // Wipe sensitive material from memory before returning
+    plaintext.zeroize();
+    key.zeroize();
 
     Ok(())
 }
@@ -166,15 +171,19 @@ fn run_decrypt(input: Option<PathBuf>, output: Option<PathBuf>, password: &str) 
     let nonce = &data[21..33];
     let ciphertext = &data[33..];
 
-    let key = derive_key(password, salt)?;
+    let mut key = derive_key(password, salt)?;
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
 
-    let plaintext = cipher
+    let mut plaintext = cipher
         .decrypt(nonce.into(), ciphertext)
         .map_err(|_| anyhow!("Decryption failed (wrong password or corrupted file)"))?;
 
     fs::write(&out_path, &plaintext)
         .with_context(|| format!("Writing {}", out_path.display()))?;
+
+    plaintext.zeroize();
+    key.zeroize();
+
     Ok(())
 }
 
