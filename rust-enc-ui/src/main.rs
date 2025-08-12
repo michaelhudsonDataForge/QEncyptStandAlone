@@ -170,6 +170,9 @@ fn run_decrypt(input: Option<PathBuf>, output: Option<PathBuf>, password: &str) 
     let salt = &data[5..21];
     let nonce = &data[21..33];
     let ciphertext = &data[33..];
+    if ciphertext.len() < 16 {
+        anyhow::bail!("Ciphertext too short (missing authentication tag)");
+    }
 
     let mut key = derive_key(password, salt)?;
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
@@ -197,4 +200,35 @@ fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
         .map_err(|_| anyhow!("Key derivation failed"))?;
 
     Ok(key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn truncated_ciphertext_returns_error() {
+        let dir = std::env::temp_dir();
+        let uniq = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let in_path = dir.join(format!("truncated_{uniq}_in.bin"));
+        let out_path = dir.join(format!("truncated_{uniq}_out.bin"));
+
+        let mut data = Vec::new();
+        data.extend_from_slice(MAGIC);
+        data.push(VERSION);
+        data.extend_from_slice(&[0u8; 16]); // salt
+        data.extend_from_slice(&[0u8; 12]); // nonce
+        data.extend_from_slice(&[0u8; 15]); // truncated ciphertext
+        fs::write(&in_path, &data).unwrap();
+
+        let res = run_decrypt(Some(in_path.clone()), Some(out_path.clone()), "password");
+        assert!(res.unwrap_err().to_string().contains("Ciphertext too short"));
+
+        let _ = fs::remove_file(in_path);
+        let _ = fs::remove_file(out_path);
+    }
 }
