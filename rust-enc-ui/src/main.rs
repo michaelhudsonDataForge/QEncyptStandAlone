@@ -1,14 +1,8 @@
-use std::{fs, io::Write, path::PathBuf};
-use anyhow::{anyhow, Context, Result};
-use eframe::{egui, NativeOptions};
+use anyhow::anyhow;
+use eframe::{NativeOptions, egui};
+use rust_enc_ui::{run_decrypt, run_encrypt};
+use std::path::PathBuf;
 use zeroize::Zeroize;
-
-use aes_gcm::{aead::{Aead, Key}, Aes256Gcm, KeyInit};
-use argon2::Argon2;
-use getrandom::fill;
-
-const MAGIC: &[u8; 4] = b"RENC";
-const VERSION: u8 = 1;
 
 fn main() -> eframe::Result<()> {
     let options = NativeOptions::default();
@@ -73,7 +67,14 @@ impl eframe::App for App {
 
             ui.separator();
 
-            if ui.button(if self.mode_encrypt { "Encrypt" } else { "Decrypt" }).clicked() {
+            if ui
+                .button(if self.mode_encrypt {
+                    "Encrypt"
+                } else {
+                    "Decrypt"
+                })
+                .clicked()
+            {
                 self.status.clear();
                 let res = if self.mode_encrypt {
                     if self.password != self.confirm_password {

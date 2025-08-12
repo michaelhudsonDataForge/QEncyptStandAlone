@@ -2481,6 +2481,7 @@ dependencies = [
  "egui",
  "getrandom 0.3.3",
  "rfd",
+ "tempfile",
  "thiserror 2.0.14",
  "zeroize",
 ]
