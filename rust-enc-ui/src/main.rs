@@ -1,9 +1,12 @@
+use anyhow::{Context, Result, anyhow};
+use eframe::{NativeOptions, egui};
 use std::{fs, io::Write, path::PathBuf};
-use anyhow::{anyhow, Context, Result};
-use eframe::{egui, NativeOptions};
 use zeroize::Zeroize;
 
-use aes_gcm::{aead::{Aead, Key}, Aes256Gcm, KeyInit};
+use aes_gcm::{
+    Aes256Gcm, KeyInit,
+    aead::{Aead, Key},
+};
 use argon2::Argon2;
 use getrandom::fill;
 
@@ -24,7 +27,9 @@ struct App {
     mode_encrypt: bool,
     input_path: Option<PathBuf>,
     output_path: Option<PathBuf>,
+    // Passwords only live in memory briefly and are wiped after use.
     password: String,
+    // Confirmation is treated the same and cleared alongside `password`.
     confirm_password: String,
     status: String,
 }
@@ -63,7 +68,7 @@ impl eframe::App for App {
             });
 
             ui.separator();
-            ui.label("Password (never stored):");
+            ui.label("Password (not stored on disk):");
             ui.add(egui::TextEdit::singleline(&mut self.password).password(true));
 
             if self.mode_encrypt {
@@ -73,7 +78,14 @@ impl eframe::App for App {
 
             ui.separator();
 
-            if ui.button(if self.mode_encrypt { "Encrypt" } else { "Decrypt" }).clicked() {
+            if ui
+                .button(if self.mode_encrypt {
+                    "Encrypt"
+                } else {
+                    "Decrypt"
+                })
+                .clicked()
+            {
                 self.status.clear();
                 let res = if self.mode_encrypt {
                     if self.password != self.confirm_password {
@@ -98,7 +110,7 @@ impl eframe::App for App {
                     Err(e) => self.status = format!("Error: {e:#}"),
                 }
 
-                // best-effort wipe
+                // Best-effort wipe so the password only resides in memory briefly.
                 self.password.zeroize();
                 self.confirm_password.zeroize();
             }
@@ -114,8 +126,8 @@ impl eframe::App for App {
 fn run_encrypt(input: Option<PathBuf>, output: Option<PathBuf>, password: &str) -> Result<()> {
     let in_path = input.context("No input file selected")?;
     let out_path = output.context("No output file selected")?;
-    let mut plaintext = fs::read(&in_path)
-        .with_context(|| format!("Reading {}", in_path.display()))?;
+    let mut plaintext =
+        fs::read(&in_path).with_context(|| format!("Reading {}", in_path.display()))?;
 
     // Derive key
     let mut salt = [0u8; 16];
@@ -139,8 +151,8 @@ fn run_encrypt(input: Option<PathBuf>, output: Option<PathBuf>, password: &str) 
     out.extend_from_slice(&nonce);
     out.extend_from_slice(&ciphertext);
 
-    let mut f = fs::File::create(&out_path)
-        .with_context(|| format!("Creating {}", out_path.display()))?;
+    let mut f =
+        fs::File::create(&out_path).with_context(|| format!("Creating {}", out_path.display()))?;
     f.write_all(&out)?;
     f.flush()?;
 
@@ -178,8 +190,7 @@ fn run_decrypt(input: Option<PathBuf>, output: Option<PathBuf>, password: &str) 
         .decrypt(nonce.into(), ciphertext)
         .map_err(|_| anyhow!("Decryption failed (wrong password or corrupted file)"))?;
 
-    fs::write(&out_path, &plaintext)
-        .with_context(|| format!("Writing {}", out_path.display()))?;
+    fs::write(&out_path, &plaintext).with_context(|| format!("Writing {}", out_path.display()))?;
 
     plaintext.zeroize();
     key.zeroize();
